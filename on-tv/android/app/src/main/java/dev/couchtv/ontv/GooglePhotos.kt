@@ -66,23 +66,29 @@ object GooglePhotos {
     @Synchronized fun refresh() {
         val url = albumUrl() ?: return
         busy = true
+        // A short link once read is remembered as the photos.google.com/share address it led to, so later
+        // refreshes skip photos.app.goo.gl: a Jio router's DNS answered that one name with an address that
+        // never connected, while photos.google.com and lh3.googleusercontent.com worked (Changhong TV, India).
+        val resolved = cached()?.takeIf { it.optString("url") == url }?.optString("resolved")?.takeIf { it.startsWith("https://photos.google.com/share/") }
         try {
-            val photos = parse(fetch(url))
+            var final = resolved ?: url
+            val photos = parse(fetch(final) { final = it })
             if (photos.length() == 0) {
                 lastError = "No photos found at that link. Check it is a shared album link and that link sharing is on."
                 return
             }
-            Store.writeJson("gphotos.json", JSONObject().put("url", url).put("photos", photos).put("fetched", System.currentTimeMillis()))
+            Store.writeJson("gphotos.json", JSONObject().put("url", url).put("resolved", final).put("photos", photos).put("fetched", System.currentTimeMillis()))
             lastError = null
             Log.i(TAG, "google photos: ${photos.length()} photos")
             Now.push()   // the home picks the new list up on its next refresh
         } catch (e: Exception) {
-            lastError = "Could not read the album: ${e.message}"
+            lastError = "Could not read the album: ${e.message}" +
+                if (url.contains("photos.app.goo.gl")) ". This TV may not reach the short link: open it in a browser and paste the photos.google.com/share/... address it opens instead." else ""
             Log.w(TAG, "google photos: ${e.message}")
         } finally { busy = false }
     }
 
-    private fun fetch(start: String): String {
+    private fun fetch(start: String, landed: (String) -> Unit = {}): String {
         var u = start
         repeat(6) {
             val c = URL(u).openConnection() as HttpURLConnection
@@ -98,6 +104,7 @@ object GooglePhotos {
                     return@repeat
                 }
                 if (code != 200) throw IllegalStateException("Google answered $code")
+                landed(u)
                 return c.inputStream.bufferedReader().use { r -> r.readText().take(8_000_000) }
             } finally { c.disconnect() }
         }
