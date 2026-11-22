@@ -45,8 +45,46 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    packaging { resources { excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/*.kotlin_module") } }
+    packaging {
+        resources { excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/*.kotlin_module") }
+        // The iPhone remote (libtvbridge.so) is a program, not a library: it must be unpacked to disk so
+        // the shell user can copy and run it (AppleRemote.kt).
+        jniLibs { useLegacyPackaging = true }
+    }
+    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("generated/appleremote"))
 }
+
+// The iPhone's Control Center remote: appleremote/ (Go) built for the TV's two ARM kinds, as
+// lib/<abi>/libtvbridge.so. Needs Go 1.24 or newer; without Go the app is built without it (with a warning).
+val appleRemoteSrc = File(repoRootForGo(), "appleremote")
+fun repoRootForGo(): File = listOf(file("../../.."), file("../../../repo")).firstOrNull { File(it, "appleremote/go.mod").isFile } ?: file("../../..")
+val buildAppleRemote by tasks.registering {
+    description = "Builds the iPhone remote bridge (appleremote/, Go) into the APK's native libraries."
+    val out = layout.buildDirectory.dir("generated/appleremote")
+    inputs.dir(appleRemoteSrc).optional()
+    outputs.dir(out)
+    doLast {
+        val go = listOf("/opt/homebrew/bin/go", "/usr/local/go/bin/go", "/usr/local/bin/go").firstOrNull { File(it).canExecute() } ?: "go"
+        val haveGo = File(appleRemoteSrc, "go.mod").isFile && runCatching {
+            ProcessBuilder(go, "version").redirectErrorStream(true).start().waitFor() == 0
+        }.getOrDefault(false)
+        if (!haveGo) {
+            logger.warn("Go not found (or no appleremote/): building Couch TV without the iPhone remote.")
+            return@doLast
+        }
+        for ((abi, arch) in listOf("armeabi-v7a" to "arm", "arm64-v8a" to "arm64")) {
+            val dest = out.get().file("$abi/libtvbridge.so").asFile
+            dest.parentFile.mkdirs()
+            val p = ProcessBuilder(go, "build", "-trimpath", "-ldflags=-s -w", "-o", dest.absolutePath, ".")
+                .directory(appleRemoteSrc).redirectErrorStream(true)
+            p.environment().putAll(mapOf("CGO_ENABLED" to "0", "GOOS" to "linux", "GOARCH" to arch, "GOARM" to "7"))
+            val proc = p.start()
+            val log = proc.inputStream.bufferedReader().readText()
+            if (proc.waitFor() != 0) throw GradleException("Go build of appleremote/ for $abi failed:\n$log")
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(buildAppleRemote) }
 
 dependencies {
     // HTTP + WebSocket server (Apache 2.0 / BSD).

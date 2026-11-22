@@ -430,6 +430,9 @@ class Server(private val ctx: Context, port: Int) : NanoWSD(port) {
         .put("xiaomi", FireHome.isXiaomi).put("patchwall_replace", Store.bool("patchwall_replace")).put("watch", WatchService.connected)
         .put("watch_apk", BuildConfig.BUILD_TYPE == "watch")   // only couch-tv-ontv-watch.apk has the Home button watch
         .put("inputs", Store.inputs())
+        // the iPhone's Control Center remote (AppleRemote): on unless switched off, and running only with ADB
+        .put("apple_remote", JSONObject().put("enabled", AppleRemote.enabled()).put("available", AppleRemote.available(ctx))
+            .put("running", AppleRemote.status() != null))
 
     /** {"people": [...]} replaces the list; {"order": [ids]} only reorders it. */
     private fun savePeople(b: JSONObject) {
@@ -476,6 +479,11 @@ class Server(private val ctx: Context, port: Int) : NanoWSD(port) {
 
     private fun saveSettings(b: JSONObject) {
         Ask.save(b)   // first: a wrong Ask setting answers 400 before anything else in the request is saved
+        if (b.has("apple_remote")) {
+            val on = b.optBoolean("apple_remote", true)
+            Store.putBool("apple_remote", on)
+            Thread { if (on) AppleRemote.start(ctx) else AppleRemote.stop() }.start()
+        }
         b.optJSONObject("settings")?.let {
             if (it.toString().length > 32_000) throw ApiError(413, "settings are too big")
             Store.writeJson("home-settings.json", it)

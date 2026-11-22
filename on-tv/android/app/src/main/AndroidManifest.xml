@@ -101,6 +101,15 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- The iPhone remote's screen (AppleRemote.kt): the PIN while an iPhone pairs, and the remote's state.
+             Exported because the bridge, running as the shell user, opens it with am start. -->
+        <activity
+            android:name=".AppleRemoteActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:screenOrientation="landscape" />
+
         <service
             android:name=".BridgeService"
             android:exported="false"

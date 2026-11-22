@@ -250,6 +250,7 @@ object Adb {
             if (Build.VERSION.SDK_INT >= 30) runCatching { shell("pm grant ${BuildConfig.APPLICATION_ID} android.permission.WRITE_SECURE_SETTINGS", 8000) }
             runCatching { shell("pm grant ${BuildConfig.APPLICATION_ID} " + if (Build.VERSION.SDK_INT >= 29) "android.permission.READ_TV_LISTINGS" else "com.android.providers.tv.permission.READ_EPG_DATA", 8000) }
             FireHome.poke()
+            AppleRemote.start(ctx)   // the iPhone's Control Center remote runs as the shell user, so it starts here
         }
         return true
     }
