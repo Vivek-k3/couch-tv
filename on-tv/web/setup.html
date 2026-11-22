@@ -67,6 +67,15 @@
   </section>
 
   <section class="card">
+    <h2>Google Photos album (optional)</h2>
+    <p>The home shows the album's photos as its slideshow instead of the scenes. In Google Photos open the album, Share, Create link (or Copy link), and paste it here. Anyone with the link can see the album. New photos show up within 6 hours. Leave empty and Save to go back to the scenes.</p>
+    <label for="album-url">Shared album link</label><input id="album-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://photos.app.goo.gl/...">
+    <p id="album-state"></p>
+    <button class="go" id="album-save">Save album</button>
+    <div class="msg" id="album-msg" role="status"></div>
+  </section>
+
+  <section class="card">
     <h2>Kids mode (optional, off unless you say yes)</h2>
     <p>Any young kids who should only see shows you've picked? I can set up a kids mode with a PIN. Their TV home then shows only the shows you add, and leaving it needs the PIN. Skip this and nothing changes.</p>
     <label class="check"><input type="checkbox" id="kids-yes"> Yes, set up kids mode</label>
@@ -146,6 +155,7 @@
           : 'This app has no Home button watch (Google Play Protect blocks it in an app installed from a phone). For this, install couch-tv-ontv-watch.apk over it from a computer (on-tv/README.md), then switch on Couch TV home watch in the TV\'s Settings, Accessibility.';
       }
       loadInputs();
+      showAlbum(j.album);
       showAsk(j.ask);
       $('phones').textContent = j.phones + (j.phones === 1 ? ' phone is' : ' phones are') + ' paired with this TV.';
       showAdb(j.adb);
@@ -229,6 +239,22 @@
   };
   $('pw-save').onclick = function () {
     api('POST', '/api/settings', { patchwall_replace: $('pw-on').checked }).then(function () { $('pw-msg').textContent = 'Saved.'; load(); }).catch(function (e) { $('pw-msg').textContent = e.message; });
+  };
+  // Google Photos album (GooglePhotos.kt): the link, how many photos it read, and any error.
+  function showAlbum(a) {
+    if (!a) return;
+    if (document.activeElement !== $('album-url')) $('album-url').value = a.url || '';
+    var n = (a.photos || []).length;
+    $('album-state').textContent = !a.url ? 'No album: the home shows its scenes.'
+      : (n ? n + (n === 1 ? ' photo' : ' photos') + ' in the slideshow.' : 'No photos read yet.') + (a.error ? ' ' + a.error : '');
+  }
+  $('album-save').onclick = function () {
+    $('album-msg').textContent = 'Reading the album…';
+    api('POST', '/api/settings', { google_photos_album: $('album-url').value.trim() }).then(function (j) {
+      showAlbum(j.album);
+      var n = j.album && j.album.photos ? j.album.photos.length : 0;
+      $('album-msg').textContent = !j.album.url ? 'Album removed. The home shows its scenes.' : n ? 'Saved. The home shows the album now.' : 'Saved, but no photos were read yet.';
+    }).catch(function (e) { $('album-msg').textContent = e.message; });
   };
   // Input tiles: one row per input the TV lists (GET /api/inputs), ticked when pinned already.
   // Saved by input id, the TV's own name for the port, so it opens that port and no other.

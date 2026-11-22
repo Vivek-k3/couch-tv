@@ -433,6 +433,8 @@ class Server(private val ctx: Context, port: Int) : NanoWSD(port) {
         // the iPhone's Control Center remote (AppleRemote): on unless switched off, and running only with ADB
         .put("apple_remote", JSONObject().put("enabled", AppleRemote.enabled()).put("available", AppleRemote.available(ctx))
             .put("running", AppleRemote.status() != null))
+        // a Google Photos shared album as the slideshow (GooglePhotos): the home shows only these while there are any
+        .put("album", GooglePhotos.status())
 
     /** {"people": [...]} replaces the list; {"order": [ids]} only reorders it. */
     private fun savePeople(b: JSONObject) {
@@ -479,6 +481,12 @@ class Server(private val ctx: Context, port: Int) : NanoWSD(port) {
 
     private fun saveSettings(b: JSONObject) {
         Ask.save(b)   // first: a wrong Ask setting answers 400 before anything else in the request is saved
+        if (b.has("google_photos_album")) {
+            // "" clears it. A wrong link answers 400; a good link that cannot be read is saved, with album.error saying why.
+            val u = b.optString("google_photos_album").trim()
+            if (u.isNotEmpty() && !GooglePhotos.looksRight(u)) throw ApiError(400, "That is not a Google Photos share link (photos.app.goo.gl/... or photos.google.com/share/...).")
+            GooglePhotos.set(u)
+        }
         if (b.has("apple_remote")) {
             val on = b.optBoolean("apple_remote", true)
             Store.putBool("apple_remote", on)

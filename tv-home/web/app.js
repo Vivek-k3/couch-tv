@@ -486,6 +486,7 @@
     if (typeof CouchDesign !== "undefined" && CFG.design) HOME = CouchDesign.home(HOME, CFG.design, { fromCode: DESIGN_FROM_CODE });
     ON_TV = CFG.mode === "on-tv";
     ST = loadSettings();
+    try { var ka = kept(ALBUM_KEY); if (ka && Array.isArray(ka.photos)) useAlbum(ka.photos); } catch (e) {}
     KEEP_PHOTO = typeof ST.keep_photo === "boolean" ? ST.keep_photo : HOME.keep_photo === true;
     var savedIdle = ST.idle_photo_seconds;
     var configuredIdle = HOME.idle_photo_seconds;
@@ -993,10 +994,34 @@
     return (Array.isArray(ST.photos) ? ST.photos : []).filter(function (p) { return p && p.id && (p.file || p.url); })
       .map(function (p, i) { return { id: "p-" + p.id, src: photoSrc(p), own: true, n: i + 1, fg: false, glass: false }; });
   }
-  function sceneById(id) { return SCENE_LIB.concat(ownScenes()).filter(function (s) { return s.id === id; })[0] || null; }
+  // A Google Photos shared album (the on-TV app's setup page, GooglePhotos.kt): its photos come with
+  // GET /api/settings as "album" and are the whole slideshow while there are any, shuffled, up to
+  // ALBUM_MAX a turn. Kept on this TV so the slideshow starts before the bridge answers.
+  var ALBUM_KEY = "tvhome.album", ALBUM_MAX = 120, ALBUM = [], ALBUM_SIG = "";
+  function shuffled(a) {
+    a = a.slice();
+    for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), x = a[i]; a[i] = a[j]; a[j] = x; }
+    return a;
+  }
+  function useAlbum(list) {
+    list = (Array.isArray(list) ? list : []).filter(function (u) { return typeof u === "string" && /^https:\/\/lh3\.googleusercontent\.com\//.test(u); });
+    var sig = list.join("|");
+    if (sig === ALBUM_SIG) return false;
+    ALBUM_SIG = sig;
+    ALBUM = shuffled(list).slice(0, ALBUM_MAX);
+    return true;
+  }
+  function albumScenes() {
+    return ALBUM.map(function (u, i) { return { id: "g-" + i, src: u, own: true, album: true, n: i + 1, fg: false, glass: false }; });
+  }
+  function sceneById(id) { return SCENE_LIB.concat(ownScenes(), albumScenes()).filter(function (s) { return s.id === id; })[0] || null; }
   // Which scenes take turns and in what order: Home settings (scene_order, scenes_off) when set,
   // else home.scenes from config.json, with anything not listed there switched off.
   function sceneState() {
+    if (ALBUM.length) {   // the album is the slideshow
+      var alb = albumScenes();
+      return { order: alb.map(function (x) { return x.id; }), off: [], all: SCENE_LIB.concat(ownScenes(), alb) };
+    }
     var all = SCENE_LIB.concat(ownScenes()), ids = all.map(function (x) { return x.id; });
     var uniq = function (id, i, a) { return ids.indexOf(id) >= 0 && a.indexOf(id) === i; };
     var order, off;
@@ -4977,6 +5002,10 @@
   // bridge; otherwise the bridge's copy comes back (this TV's storage was cleared, say).
   function syncSettings() {
     return api("GET", "/api/settings").then(function (j) {
+      if (j.album && useAlbum(j.album.photos)) {   // the album changed (or was removed): show the new slideshow
+        keep(ALBUM_KEY, { photos: (j.album.photos || []).slice(0, 300) });
+        if (zone !== "settings") restart();
+      }
       var rec = kept(ST_KEY), remote = j.settings && typeof j.settings === "object" && !Array.isArray(j.settings) ? j.settings : null;
       if (rec && rec.pending) return pushSettings(rec);
       if (!remote || (!j.updated && !Object.keys(remote).length)) {   // the bridge has none yet: it gets ours
