@@ -24,8 +24,10 @@ class GooglePhotosTest {
         """
         val got = GooglePhotos.parse(html)
         assertEquals(2, got.length())
-        assertEquals("https://lh3.googleusercontent.com/pw/AP1GczFirst_1=w1920-h1080", got.getString(0))
-        assertEquals("https://lh3.googleusercontent.com/pw/AP1GczSecond-2=w1920-h1080", got.getString(1))
+        assertEquals("https://lh3.googleusercontent.com/pw/AP1GczFirst_1=w1920-h1080", got.getJSONObject(0).getString("u"))
+        assertEquals(4032, got.getJSONObject(0).getInt("w"))
+        assertEquals("https://lh3.googleusercontent.com/pw/AP1GczSecond-2=w1920-h1080", got.getJSONObject(1).getString("u"))
+        assertEquals(4032, got.getJSONObject(1).getInt("h"))
     }
 
     @Test fun nothingOnAnUnrelatedPage() {

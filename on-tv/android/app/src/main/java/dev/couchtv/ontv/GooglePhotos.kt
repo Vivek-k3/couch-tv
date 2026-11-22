@@ -38,7 +38,8 @@ object GooglePhotos {
     fun status(): JSONObject {
         val url = albumUrl() ?: return JSONObject().put("url", JSONObject.NULL).put("photos", JSONArray())
         val c = cached()?.takeIf { it.optString("url") == url }
-        if (c == null || System.currentTimeMillis() - c.optLong("fetched") > EVERY_MS) refreshAsync()
+        val oldFormat = c?.optJSONArray("photos")?.opt(0) is String   // before sizes were kept
+        if (c == null || oldFormat || System.currentTimeMillis() - c.optLong("fetched") > EVERY_MS) refreshAsync()
         return JSONObject().put("url", url)
             .put("photos", c?.optJSONArray("photos") ?: JSONArray())
             .put("fetched", c?.optLong("fetched") ?: 0)
@@ -111,15 +112,18 @@ object GooglePhotos {
         throw IllegalStateException("too many redirects")
     }
 
-    /** Photo addresses from a share page, in album order, sized for a TV. Public for the unit test. */
+    /**
+     * Photos from a share page, in album order: {u: address sized for a TV, w, h: the photo's own size}.
+     * The size lets the home put two tall photos side by side. Public for the unit test.
+     */
     fun parse(html: String): JSONArray {
-        val seen = LinkedHashSet<String>()
+        val seen = LinkedHashMap<String, Pair<Int, Int>>()
         for (m in PHOTO.findAll(html)) {
             val w = m.groupValues[2].toInt(); val h = m.groupValues[3].toInt()
             if (w < 200 || h < 200) continue      // icons and avatars, not photos
-            seen += m.groupValues[1]
+            if (m.groupValues[1] !in seen) seen[m.groupValues[1]] = w to h
             if (seen.size >= MAX) break
         }
-        return JSONArray(seen.map { "$it=w1920-h1080" })
+        return JSONArray(seen.map { (u, wh) -> JSONObject().put("u", "$u=w1920-h1080").put("w", wh.first).put("h", wh.second) })
     }
 }

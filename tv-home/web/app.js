@@ -491,7 +491,8 @@
     var savedIdle = ST.idle_photo_seconds;
     var configuredIdle = HOME.idle_photo_seconds;
     IDLE_PHOTO_SECONDS = IDLE_PHOTO_STEPS.indexOf(savedIdle) >= 0 ? savedIdle :
-      (IDLE_PHOTO_STEPS.indexOf(configuredIdle) >= 0 ? configuredIdle : 0);
+      (IDLE_PHOTO_STEPS.indexOf(configuredIdle) >= 0 ? configuredIdle : ALBUM.length ? 60 : 0);   // a photo album: rows hide after a minute unless set
+    setTimeout(resetIdlePhoto, 0);   // count from the home opening too, not only from the first key
     SMART_IDLE = normSmartIdle(ST.smart_idle || HOME.smart_idle);
     // the language: Home settings, then config.json, then the TV's own language if the home speaks it
     if (window.I18N) window.I18N.set(ST.lang || HOME.language || window.I18N.device());
@@ -1003,16 +1004,27 @@
     for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)), x = a[i]; a[i] = a[j]; a[j] = x; }
     return a;
   }
+  // Each photo comes as {u, w, h} (or a bare address from an older app). Two tall photos share one
+  // turn, side by side, so a portrait photo is not one thin strip in the middle of the screen.
   function useAlbum(list) {
-    list = (Array.isArray(list) ? list : []).filter(function (u) { return typeof u === "string" && /^https:\/\/lh3\.googleusercontent\.com\//.test(u); });
-    var sig = list.join("|");
+    list = (Array.isArray(list) ? list : []).map(function (p) { return typeof p === "string" ? { u: p } : p; })
+      .filter(function (p) { return p && typeof p.u === "string" && /^https:\/\/lh3\.googleusercontent\.com\//.test(p.u); });
+    var sig = list.map(function (p) { return p.u + "," + (p.w || 0) + "," + (p.h || 0); }).join("|");
     if (sig === ALBUM_SIG) return false;
     ALBUM_SIG = sig;
-    ALBUM = shuffled(list).slice(0, ALBUM_MAX);
+    var turns = [], waiting = null;
+    shuffled(list).forEach(function (p) {
+      var tall = p.w > 0 && p.h > p.w * 1.05;
+      if (!tall) { turns.push({ u: p.u }); return; }
+      if (waiting) { waiting.u2 = p.u; waiting = null; return; }
+      waiting = { u: p.u };
+      turns.push(waiting);
+    });
+    ALBUM = turns.slice(0, ALBUM_MAX);
     return true;
   }
   function albumScenes() {
-    return ALBUM.map(function (u, i) { return { id: "g-" + i, src: u, own: true, album: true, n: i + 1, fg: false, glass: false }; });
+    return ALBUM.map(function (t, i) { return { id: "g-" + i, src: t.u, src2: t.u2, own: true, album: true, n: i + 1, fg: false, glass: false }; });
   }
   function sceneById(id) { return SCENE_LIB.concat(ownScenes(), albumScenes()).filter(function (s) { return s.id === id; })[0] || null; }
   // Which scenes take turns and in what order: Home settings (scene_order, scenes_off) when set,
@@ -1050,7 +1062,8 @@
     sceneEls = SCENES.map(function (s) {
       var el = document.createElement("div");
       el.className = "scene s-" + sceneClass(s);
-      el.innerHTML = '<img class="sbg" alt="">' + (s.video ? '<video class="svid" muted loop playsinline preload="none"></video>' : "") +
+      if (s.album) el.className += " s-album" + (s.src2 ? " s-pair" : "");   // a Google Photos album photo: a small clock in the corner (app.css)
+      el.innerHTML = (s.album ? '<img class="sblur" alt="">' : "") + '<img class="sbg" alt="">' + (s.src2 ? '<img class="sbg2" alt="">' : "") + (s.video ? '<video class="svid" muted loop playsinline preload="none"></video>' : "") +
         '<div class="shade"></div><div class="gclock"></div>' +
         (s.water ? '<div class="gclock under"></div>' : "") + (s.fg ? '<img class="fg" alt="">' : "");
       if (s.mine) {   // your own scene: its clock from config.json (app.css, "your own scenes")
@@ -1147,8 +1160,11 @@
     if (!el.classList.contains("ready")) {
       var sbg = el.querySelector(".sbg");
       if (s.dailyBing) s.src = bingPhotoUrl() || s.src;
-      if (s.src) sbg.src = s.src;
-      else if (s.mine) {
+      if (s.src) {
+        sbg.src = s.src;
+        if (s.album) el.querySelector(".sblur").src = s.src;   // the same photo, blurred, fills around the whole one (app.css)
+        if (s.src2) el.querySelector(".sbg2").src = s.src2;     // two tall photos side by side
+      } else if (s.mine) {
         // an own scene may carry a 4K copy, scene-<id>@2x.jpg (make-scene.py --4k). On a 4K screen it is
         // tried first, and the 1080 file is used if it is not there, so scenes made before this keep working.
         var lo = bgPath(s.photo, ".jpg", false), hi = bgPath(s.photo, ".jpg", true);
